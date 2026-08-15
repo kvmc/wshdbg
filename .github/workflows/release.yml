@@ -1,0 +1,71 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Windows x64 release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if (-not $version) { throw 'VERSION is empty' }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid VERSION: $version" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Configure
+        run: cmake -S . -B build -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $name = "wshdbg-v$version-windows-x64"
+          New-Item -ItemType Directory -Force "dist/$name" | Out-Null
+          Get-ChildItem build -Recurse -File -Include *.exe,*.dll,*.pdb |
+            ForEach-Object { Copy-Item $_.FullName "dist/$name/" }
+          Copy-Item README.md,LICENSE "dist/$name/"
+          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip" -Force
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name.zip" | Set-Content -NoNewline "dist/$name.zip.sha256"
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.version.outputs.tag }}'
+          $version = '${{ steps.version.outputs.version }}'
+          $name = "wshdbg-v$version-windows-x64"
+          $pre = if ($version -match '-') { '--prerelease' } else { '' }
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag "dist/$name.zip" "dist/$name.zip.sha256" --clobber
+          } else {
+            if ($pre) {
+              gh release create $tag "dist/$name.zip" "dist/$name.zip.sha256" --target $env:GITHUB_SHA --title $tag --generate-notes --prerelease
+            } else {
+              gh release create $tag "dist/$name.zip" "dist/$name.zip.sha256" --target $env:GITHUB_SHA --title $tag --generate-notes
+            }
+          }
