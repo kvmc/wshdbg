@@ -1,0 +1,50 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Stage binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/wshdbg-windows-x64 | Out-Null
+          Get-ChildItem build -Recurse -File -Include *.exe,*.dll,*.pdb |
+            ForEach-Object { Copy-Item $_.FullName artifacts/wshdbg-windows-x64/ }
+          Copy-Item README.md,LICENSE artifacts/wshdbg-windows-x64/
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: wshdbg-windows-x64
+          path: artifacts/wshdbg-windows-x64
+          if-no-files-found: error
+
+  portable-core:
+    name: Portable core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
