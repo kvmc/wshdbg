@@ -29,6 +29,10 @@ ctest --test-dir build --output-on-failure
 
 The portable core/tests also build on non-Windows systems; the Active Scripting backend is automatically omitted.
 
+## GitHub Actions
+
+Every push to `main` and every pull request builds the portable core on Ubuntu and the full Windows backend on `windows-latest`. The Windows job uploads a `wshdbg-windows-x64` artifact containing the executable and associated build outputs. The workflow also supports manual `workflow_dispatch` runs from the Actions tab.
+
 ## Current CLI
 
 ```powershell
