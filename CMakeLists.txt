@@ -25,7 +25,6 @@ if(WIN32 AND WSHDBG_BUILD_WINDOWS_BACKEND)
     add_library(wshdbg_windows
         src/windows/active_script_host.cpp
         src/windows/com_runtime.cpp
-        src/windows/debug_manager.cpp
     )
     target_include_directories(wshdbg_windows PUBLIC include PRIVATE src/windows)
     target_link_libraries(wshdbg_windows PUBLIC wshdbg_core ole32 oleaut32 uuid)
