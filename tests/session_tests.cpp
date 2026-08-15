@@ -1,0 +1,5 @@
+#include "test.hpp"
+#include "wshdbg/core/session.hpp"
+using namespace wshdbg;
+TEST("session enforces lifecycle transitions"){DebugSession session;REQUIRE(session.transition(SessionState::Launching));REQUIRE(session.transition(SessionState::Running));REQUIRE(!session.transition(SessionState::Created));REQUIRE(session.transition(SessionState::Paused));REQUIRE(session.transition(SessionState::Running));REQUIRE(session.transition(SessionState::Stopped));REQUIRE(!session.transition(SessionState::Running));}
+TEST("stop event records reason and location"){DebugSession session;session.transition(SessionState::Launching);session.transition(SessionState::Running);int stopped_events=0;session.subscribe([&](const SessionEvent& event){if(event.kind==SessionEvent::Kind::Stopped)++stopped_events;});session.stopped(StopInfo{.reason=StopReason::Breakpoint,.location=SourceLocation{.file="test.vbs",.line=12,.column=4},.description=L"breakpoint"});REQUIRE(session.state()==SessionState::Paused);REQUIRE(session.last_stop().has_value());REQUIRE(session.last_stop()->reason==StopReason::Breakpoint);REQUIRE(session.last_stop()->location->line==12);REQUIRE(stopped_events==1);}
