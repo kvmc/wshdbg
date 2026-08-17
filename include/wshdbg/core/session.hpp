@@ -1,5 +1,6 @@
 #pragma once
 #include "wshdbg/core/breakpoint_store.hpp"
+#include "wshdbg/core/debug_event.hpp"
 #include "wshdbg/core/types.hpp"
 #include <functional>
 #include <optional>
@@ -7,9 +8,10 @@
 #include <vector>
 namespace wshdbg {
 struct SessionEvent {
-    enum class Kind { StateChanged, Stopped, Output } kind{Kind::StateChanged};
+    enum class Kind { StateChanged, Stopped, Output, Debugger } kind{Kind::StateChanged};
     SessionState state{SessionState::Created};
     std::optional<StopInfo> stop;
+    std::optional<DebugEvent> debug;
     std::wstring text;
 };
 class DebugSession {
@@ -23,6 +25,7 @@ public:
     bool transition(SessionState next);
     void stopped(StopInfo info);
     void output(std::wstring_view text);
+    void debugger_event(DebugEvent event);
     [[nodiscard]] static bool can_transition(SessionState from, SessionState to) noexcept;
 private:
     void publish(const SessionEvent& event) const;
