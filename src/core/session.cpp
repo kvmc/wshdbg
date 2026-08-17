@@ -6,5 +6,25 @@ bool DebugSession::can_transition(SessionState from,SessionState to) noexcept { 
 bool DebugSession::transition(SessionState next){if(!can_transition(state_,next))return false;state_=next;if(next==SessionState::Running)last_stop_.reset();publish(SessionEvent{.kind=SessionEvent::Kind::StateChanged,.state=state_});return true;}
 void DebugSession::stopped(StopInfo info){if(state_!=SessionState::Paused&&!transition(SessionState::Paused))return;last_stop_=std::move(info);publish(SessionEvent{.kind=SessionEvent::Kind::Stopped,.state=state_,.stop=last_stop_});}
 void DebugSession::output(std::wstring_view text){publish(SessionEvent{.kind=SessionEvent::Kind::Output,.state=state_,.text=std::wstring{text}});}
+void DebugSession::debugger_event(DebugEvent event){
+    switch(event.type){
+    case DebugEventType::BreakpointHit:
+        stopped(StopInfo{.reason=StopReason::Breakpoint,.location=event.location,.description=event.message.empty()?L"breakpoint":event.message});
+        break;
+    case DebugEventType::StepComplete:
+        stopped(StopInfo{.reason=StopReason::Step,.location=event.location,.description=event.message.empty()?L"step complete":event.message});
+        break;
+    case DebugEventType::ScriptError:
+        stopped(StopInfo{.reason=StopReason::ScriptError,.location=event.location,.description=event.message.empty()?L"script error":event.message});
+        break;
+    case DebugEventType::ProcessStopped:
+        if(state_!=SessionState::Stopped&&state_!=SessionState::Failed) transition(SessionState::Stopped);
+        break;
+    case DebugEventType::ScriptLoaded:
+    case DebugEventType::BreakpointBound:
+        break;
+    }
+    publish(SessionEvent{.kind=SessionEvent::Kind::Debugger,.state=state_,.debug=std::move(event)});
+}
 void DebugSession::publish(const SessionEvent& event) const {for(const auto& handler:handlers_)handler(event);}
 } // namespace wshdbg
