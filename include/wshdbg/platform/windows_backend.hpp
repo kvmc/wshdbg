@@ -1,9 +1,11 @@
 #pragma once
+#include "wshdbg/core/inspection.hpp"
 #include "wshdbg/core/session.hpp"
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace wshdbg::windows {
 
@@ -31,6 +33,7 @@ public:
 
     DebugWaitResult wait(std::chrono::milliseconds timeout);
     bool paused() const noexcept;
+    std::vector<StackFrameInfo> stack() const;
     bool resume(ResumeAction action, std::wstring& error);
 
 private:
