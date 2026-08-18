@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <vector>
 #include <wrl/client.h>
 
 namespace wshdbg::windows {
@@ -47,6 +48,10 @@ public:
 
 private:
     std::optional<SourceLocation> source_location(
+        IRemoteDebugApplicationThread* thread) const noexcept;
+    std::optional<SourceLocation> source_location(
+        IDebugStackFrame* frame) const noexcept;
+    std::vector<StackFrameInfo> capture_stack(
         IRemoteDebugApplicationThread* thread) const noexcept;
 
     std::atomic<ULONG> refs_{1};
