@@ -32,6 +32,7 @@ if(WIN32 AND WSHDBG_BUILD_WINDOWS_BACKEND)
         src/windows/com_runtime.cpp
         src/windows/debug_application.cpp
         src/windows/debug_code_context.cpp
+        src/windows/debug_control.cpp
         src/windows/debug_document.cpp
         src/windows/debug_document_helper.cpp
         src/windows/debug_site.cpp
