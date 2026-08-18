@@ -1,14 +1,21 @@
 #include "active_script_debug_site.hpp"
+#include "wshdbg/core/logging.hpp"
 
 namespace wshdbg::windows {
 
-ActiveScriptDebugSite::ActiveScriptDebugSite(DebugSiteBridge& bridge, std::filesystem::path script) noexcept
-    : bridge_(bridge), script_(std::move(script)) {}
+ActiveScriptDebugSite::ActiveScriptDebugSite(
+    DebugSiteBridge& bridge,
+    std::filesystem::path script,
+    DebugApplication& application,
+    DebugDocumentHelper& document_helper) noexcept
+    : bridge_(bridge),
+      script_(std::move(script)),
+      application_(application),
+      document_helper_(document_helper) {}
 
 STDMETHODIMP ActiveScriptDebugSite::QueryInterface(REFIID riid, void** object) {
     if (!object) return E_POINTER;
     *object = nullptr;
-
 #ifdef _WIN64
     if (riid == IID_IUnknown || riid == IID_IActiveScriptSiteDebug64) {
 #else
@@ -31,23 +38,22 @@ STDMETHODIMP_(ULONG) ActiveScriptDebugSite::Release() {
 
 #ifdef _WIN64
 STDMETHODIMP ActiveScriptDebugSite::GetDocumentContextFromPosition(
-    DWORDLONG,
-    ULONG,
-    ULONG,
+    DWORDLONG source_context,
+    ULONG character_offset,
+    ULONG character_count,
     IDebugDocumentContext** context) {
 #else
 STDMETHODIMP ActiveScriptDebugSite::GetDocumentContextFromPosition(
-    DWORD,
-    ULONG,
-    ULONG,
+    DWORD source_context,
+    ULONG character_offset,
+    ULONG character_count,
     IDebugDocumentContext** context) {
 #endif
     if (!context) return E_POINTER;
     *context = nullptr;
-    // Implemented once IDebugDocumentHelper registration lands. Returning
-    // E_NOTIMPL is intentional; fabricated document contexts would bind
-    // breakpoints to the wrong source range.
-    return E_NOTIMPL;
+    if (!document_helper_.registered()) return E_UNEXPECTED;
+    if (source_context != document_helper_.source_context()) return E_INVALIDARG;
+    return document_helper_.create_context(character_offset, character_count, context);
 }
 
 #ifdef _WIN64
@@ -57,15 +63,15 @@ STDMETHODIMP ActiveScriptDebugSite::GetApplication(IDebugApplication32** applica
 #endif
     if (!application) return E_POINTER;
     *application = nullptr;
-    // The debug application will be injected by the Active Debugging session
-    // owner. Do not silently create a Visual Studio/PDM dependency here.
-    return E_NOTIMPL;
+    auto* native = application_.native();
+    if (!native) return E_UNEXPECTED;
+    native->AddRef();
+    *application = native;
+    return S_OK;
 }
 
 STDMETHODIMP ActiveScriptDebugSite::GetRootApplicationNode(IDebugApplicationNode** root) {
-    if (!root) return E_POINTER;
-    *root = nullptr;
-    return E_NOTIMPL;
+    return document_helper_.get_application_node(root);
 }
 
 STDMETHODIMP ActiveScriptDebugSite::OnScriptErrorDebug(
@@ -98,6 +104,7 @@ STDMETHODIMP ActiveScriptDebugSite::OnScriptErrorDebug(
         }
     }
 
+    Logger::instance().write(LogLevel::Error, L"active-script", description);
     bridge_.script_error(std::move(location), description);
     return S_OK;
 }
