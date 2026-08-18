@@ -34,6 +34,7 @@ public:
     DebugWaitResult wait(std::chrono::milliseconds timeout);
     bool paused() const noexcept;
     std::vector<StackFrameInfo> stack() const;
+    std::vector<VariableInfo> variables() const;
     bool resume(ResumeAction action, std::wstring& error);
 
 private:
