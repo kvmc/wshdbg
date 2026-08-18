@@ -14,7 +14,7 @@ void usage() {
         << L"wshdbg 0.1.0\n"
         << L"Usage:\n"
         << L"  wshdbg run [--log-level off|error|debug|trace] <script.vbs|script.js>\n"
-        << L"  wshdbg debug [--log-level off|error|debug|trace] <script.vbs|script.js>\n"
+        << L"  wshdbg debug [--break-on-entry] [--log-level off|error|debug|trace] <script.vbs|script.js>\n"
         << L"  wshdbg --version\n";
 }
 
@@ -45,6 +45,7 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     wshdbg::LogLevel log_level = wshdbg::LogLevel::Error;
+    bool break_on_entry = false;
     std::filesystem::path script_path;
     for (int i = 2; i < argc; ++i) {
         const std::wstring arg{argv[i]};
@@ -59,6 +60,8 @@ int wmain(int argc, wchar_t** argv) {
                 return 2;
             }
             log_level = *parsed;
+        } else if (arg == L"--break-on-entry") {
+            break_on_entry = true;
         } else if (script_path.empty()) {
             script_path = arg;
         } else {
@@ -110,7 +113,13 @@ int wmain(int argc, wchar_t** argv) {
     wshdbg::windows::ActiveScriptHost host;
     std::wstring error;
     const bool debug = command == L"debug";
-    if (!host.run({.script_path = script_path, .language = language, .break_on_entry = debug}, session, error)) {
+    if (!host.run({
+            .script_path = script_path,
+            .language = language,
+            .debug = debug,
+            .break_on_entry = debug && break_on_entry},
+        session,
+        error)) {
         std::wcerr << L"error: " << error << L"\n";
         return 1;
     }
