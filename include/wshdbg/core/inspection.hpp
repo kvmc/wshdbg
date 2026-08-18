@@ -14,6 +14,14 @@ struct StackFrameInfo {
     std::optional<SourceLocation> location;
 };
 
+struct VariableInfo {
+    std::wstring name;
+    std::wstring type;
+    std::wstring value;
+    bool expandable{false};
+    bool read_only{false};
+};
+
 struct EvaluationResult {
     bool success{false};
     std::wstring expression;
