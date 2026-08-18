@@ -8,15 +8,12 @@ DebugApplication::~DebugApplication() {
     shutdown();
 }
 
-bool DebugApplication::initialize(const std::wstring&) {
-    // Active Debugging document/application registration will be connected here.
-    // Keeping this lifecycle explicit prevents hidden debugger dependencies.
-    initialized_ = true;
-    return true;
+bool DebugApplication::initialize(const std::wstring& name, std::wstring& error) {
+    return services_.initialize(name, error);
 }
 
 void DebugApplication::shutdown() {
-    initialized_ = false;
+    services_.shutdown();
 }
 
 } // namespace wshdbg::windows
