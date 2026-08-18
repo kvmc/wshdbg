@@ -3,11 +3,14 @@
 #ifdef WSHDBG_HAS_WINDOWS_BACKEND
 #include "wshdbg/platform/windows_backend.hpp"
 #endif
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -42,6 +45,8 @@ std::optional<std::uint32_t> parse_line(std::wstring_view value) {
 
 #ifdef _WIN32
 int wmain(int argc, wchar_t** argv) {
+    using namespace std::chrono_literals;
+
     if (argc == 2 && std::wstring{argv[1]} == L"--version") {
         std::wcout << L"wshdbg 0.1.0\n";
         return 0;
@@ -152,17 +157,75 @@ int wmain(int argc, wchar_t** argv) {
         }
     });
 
-    wshdbg::windows::ActiveScriptHost host;
-    std::wstring error;
     const bool debug = command == L"debug" || !breakpoint_lines.empty() || break_on_entry;
-    if (!host.run({
-            .script_path = script_path,
-            .language = language,
-            .debug = debug,
-            .break_on_entry = debug && break_on_entry},
-        session,
-        error)) {
-        std::wcerr << L"error: " << error << L"\n";
+    const wshdbg::windows::LaunchOptions options{
+        .script_path = script_path,
+        .language = language,
+        .debug = debug,
+        .break_on_entry = debug && break_on_entry};
+
+    if (!debug) {
+        wshdbg::windows::ActiveScriptHost host;
+        std::wstring error;
+        if (!host.run(options, session, error)) {
+            std::wcerr << L"error: " << error << L"\n";
+            return 1;
+        }
+        return 0;
+    }
+
+    wshdbg::windows::DebugControl control;
+    std::atomic<bool> finished{false};
+    bool run_ok = false;
+    std::wstring run_error;
+
+    std::thread worker([&] {
+        wshdbg::windows::ActiveScriptHost host;
+        run_ok = host.run(options, session, run_error, &control);
+        finished.store(true, std::memory_order_release);
+    });
+
+    while (!finished.load(std::memory_order_acquire)) {
+        const auto wait_result = control.wait(100ms);
+        if (wait_result != wshdbg::windows::DebugWaitResult::Paused) continue;
+
+        bool resumed = false;
+        while (!resumed && !finished.load(std::memory_order_acquire)) {
+            std::wcout << L"wshdbg> " << std::flush;
+            std::wstring input;
+            if (!std::getline(std::wcin, input)) input = L"quit";
+
+            wshdbg::windows::ResumeAction action;
+            if (input == L"c" || input == L"continue") {
+                action = wshdbg::windows::ResumeAction::Continue;
+            } else if (input == L"s" || input == L"step" || input == L"in") {
+                action = wshdbg::windows::ResumeAction::StepInto;
+            } else if (input == L"n" || input == L"next" || input == L"over") {
+                action = wshdbg::windows::ResumeAction::StepOver;
+            } else if (input == L"o" || input == L"out") {
+                action = wshdbg::windows::ResumeAction::StepOut;
+            } else if (input == L"q" || input == L"quit") {
+                action = wshdbg::windows::ResumeAction::Abort;
+            } else if (input == L"h" || input == L"help" || input == L"?") {
+                std::wcout << L"c/continue  s/step  n/next  o/out  q/quit\n";
+                continue;
+            } else {
+                std::wcout << L"Unknown command. Type 'help'.\n";
+                continue;
+            }
+
+            std::wstring resume_error;
+            if (!control.resume(action, resume_error)) {
+                std::wcerr << L"debug-control error: " << resume_error << L"\n";
+            } else {
+                resumed = true;
+            }
+        }
+    }
+
+    worker.join();
+    if (!run_ok) {
+        std::wcerr << L"error: " << (run_error.empty() ? L"debug session failed" : run_error) << L"\n";
         return 1;
     }
     return 0;
