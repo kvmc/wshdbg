@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(wshdbg_core
     src/core/breakpoint_store.cpp
+    src/core/logging.cpp
     src/core/session.cpp
 )
 target_include_directories(wshdbg_core PUBLIC include)
@@ -25,7 +26,12 @@ if(WIN32 AND WSHDBG_BUILD_WINDOWS_BACKEND)
     add_library(wshdbg_windows
         src/windows/active_script_host.cpp
         src/windows/active_script_debug_site.cpp
+        src/windows/breakpoint_binder.cpp
         src/windows/com_runtime.cpp
+        src/windows/debug_application.cpp
+        src/windows/debug_code_context.cpp
+        src/windows/debug_document.cpp
+        src/windows/debug_document_helper.cpp
         src/windows/debug_site.cpp
     )
     target_include_directories(wshdbg_windows PUBLIC include PRIVATE src/windows)
