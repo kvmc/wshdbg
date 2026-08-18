@@ -48,6 +48,10 @@ std::vector<StackFrameInfo> DebugControl::stack() const {
     return impl_->stack();
 }
 
+std::vector<VariableInfo> DebugControl::variables() const {
+    return impl_->variables();
+}
+
 bool DebugControl::resume(ResumeAction action, std::wstring& error) {
     return impl_->resume(action, error);
 }
@@ -97,6 +101,7 @@ bool DebugControl::Impl::capture(
         application_cookie_ = application_cookie;
         thread_cookie_ = thread_cookie;
         stack_.clear();
+        variables_.clear();
         paused_ = true;
         completed_ = false;
     }
@@ -108,6 +113,11 @@ bool DebugControl::Impl::capture(
 void DebugControl::Impl::set_stack(std::vector<StackFrameInfo> frames) {
     std::scoped_lock lock(mutex_);
     stack_ = std::move(frames);
+}
+
+void DebugControl::Impl::set_variables(std::vector<VariableInfo> variables) {
+    std::scoped_lock lock(mutex_);
+    variables_ = std::move(variables);
 }
 
 void DebugControl::Impl::clear_locked() noexcept {
@@ -149,6 +159,11 @@ bool DebugControl::Impl::paused() const noexcept {
 std::vector<StackFrameInfo> DebugControl::Impl::stack() const {
     std::scoped_lock lock(mutex_);
     return stack_;
+}
+
+std::vector<VariableInfo> DebugControl::Impl::variables() const {
+    std::scoped_lock lock(mutex_);
+    return variables_;
 }
 
 bool DebugControl::Impl::resume(ResumeAction action, std::wstring& error) noexcept {
