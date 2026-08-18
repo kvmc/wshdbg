@@ -3,6 +3,7 @@ project(wshdbg VERSION 0.1.0 LANGUAGES CXX)
 
 option(WSHDBG_BUILD_TESTS "Build wshdbg tests" ON)
 option(WSHDBG_BUILD_WINDOWS_BACKEND "Build Windows Active Scripting backend" ON)
+option(WSHDBG_BUILD_INTEGRATION_TESTS "Build Windows Active Debugging integration tests" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,4 +64,17 @@ if(WSHDBG_BUILD_TESTS)
     target_link_libraries(wshdbg_tests PRIVATE wshdbg_core)
     target_compile_definitions(wshdbg_tests PRIVATE WSHDBG_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME wshdbg_tests COMMAND wshdbg_tests)
+endif()
+
+if(WIN32 AND WSHDBG_BUILD_WINDOWS_BACKEND AND WSHDBG_BUILD_INTEGRATION_TESTS)
+    enable_testing()
+    add_executable(wshdbg_windows_integration_tests
+        tests/windows/debugger_integration_tests.cpp
+    )
+    target_link_libraries(wshdbg_windows_integration_tests PRIVATE wshdbg_windows)
+    target_compile_definitions(
+        wshdbg_windows_integration_tests
+        PRIVATE WSHDBG_SOURCE_DIR="${CMAKE_SOURCE_DIR}" UNICODE _UNICODE)
+    add_test(NAME wshdbg_windows_integration_tests COMMAND wshdbg_windows_integration_tests)
+    set_tests_properties(wshdbg_windows_integration_tests PROPERTIES LABELS "windows;integration")
 endif()
