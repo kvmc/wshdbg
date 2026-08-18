@@ -41,6 +41,38 @@ std::optional<std::uint32_t> parse_line(std::wstring_view value) {
         return std::nullopt;
     }
 }
+
+void print_stack(const wshdbg::windows::DebugControl& control) {
+    const auto frames = control.stack();
+    if (frames.empty()) {
+        std::wcout << L"<no stack frames>\n";
+        return;
+    }
+    for (const auto& frame : frames) {
+        std::wcout << L"#" << frame.index << L" " << frame.name;
+        if (frame.location) {
+            std::wcout << L"  " << frame.location->file.wstring()
+                       << L":" << frame.location->line
+                       << L":" << frame.location->column;
+        }
+        std::wcout << L"\n";
+    }
+}
+
+void print_variables(const wshdbg::windows::DebugControl& control) {
+    const auto variables = control.variables();
+    if (variables.empty()) {
+        std::wcout << L"<no locals or arguments>\n";
+        return;
+    }
+    for (const auto& variable : variables) {
+        std::wcout << variable.name << L" = " << variable.value;
+        if (!variable.type.empty()) std::wcout << L"  [" << variable.type << L"]";
+        if (variable.read_only) std::wcout << L"  readonly";
+        if (variable.expandable) std::wcout << L"  expandable";
+        std::wcout << L"\n";
+    }
+}
 }
 
 #ifdef _WIN32
@@ -196,7 +228,13 @@ int wmain(int argc, wchar_t** argv) {
             if (!std::getline(std::wcin, input)) input = L"quit";
 
             wshdbg::windows::ResumeAction action;
-            if (input == L"c" || input == L"continue") {
+            if (input == L"bt" || input == L"stack" || input == L"where") {
+                print_stack(control);
+                continue;
+            } else if (input == L"locals" || input == L"vars") {
+                print_variables(control);
+                continue;
+            } else if (input == L"c" || input == L"continue") {
                 action = wshdbg::windows::ResumeAction::Continue;
             } else if (input == L"s" || input == L"step" || input == L"in") {
                 action = wshdbg::windows::ResumeAction::StepInto;
@@ -207,7 +245,7 @@ int wmain(int argc, wchar_t** argv) {
             } else if (input == L"q" || input == L"quit") {
                 action = wshdbg::windows::ResumeAction::Abort;
             } else if (input == L"h" || input == L"help" || input == L"?") {
-                std::wcout << L"c/continue  s/step  n/next  o/out  q/quit\n";
+                std::wcout << L"bt/stack  locals  c/continue  s/step  n/next  o/out  q/quit\n";
                 continue;
             } else {
                 std::wcout << L"Unknown command. Type 'help'.\n";
