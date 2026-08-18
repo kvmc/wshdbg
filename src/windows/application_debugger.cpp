@@ -31,21 +31,15 @@ STDMETHODIMP ApplicationDebugger::QueryInterface(REFIID riid, void** object) {
 }
 
 STDMETHODIMP_(ULONG) ApplicationDebugger::AddRef() { return ++refs_; }
-
 STDMETHODIMP_(ULONG) ApplicationDebugger::Release() {
     const auto refs = --refs_;
     if (!refs) delete this;
     return refs;
 }
-
 STDMETHODIMP ApplicationDebugger::QueryAlive() { return S_OK; }
 
 STDMETHODIMP ApplicationDebugger::CreateInstanceAtDebugger(
-    REFCLSID clsid,
-    IUnknown* outer,
-    DWORD cls_context,
-    REFIID iid,
-    IUnknown** object) {
+    REFCLSID clsid, IUnknown* outer, DWORD cls_context, REFIID iid, IUnknown** object) {
     if (!object) return E_POINTER;
     *object = nullptr;
     return CoCreateInstance(clsid, outer, cls_context, iid, reinterpret_cast<void**>(object));
@@ -57,22 +51,8 @@ STDMETHODIMP ApplicationDebugger::onDebugOutput(LPCOLESTR text) {
 }
 
 std::optional<SourceLocation> ApplicationDebugger::source_location(
-    IRemoteDebugApplicationThread* thread) const noexcept {
-    if (!thread || !document_) return std::nullopt;
-
-    ComPtr<IEnumDebugStackFrames> frames;
-    if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return std::nullopt;
-
-    DebugStackFrameDescriptor descriptor{};
-    ULONG fetched = 0;
-    if (FAILED(frames->Next(1, &descriptor, &fetched)) || fetched == 0 || !descriptor.pdsf) {
-        if (descriptor.punkFinal) descriptor.punkFinal->Release();
-        return std::nullopt;
-    }
-
-    ComPtr<IDebugStackFrame> frame;
-    frame.Attach(descriptor.pdsf);
-    if (descriptor.punkFinal) descriptor.punkFinal->Release();
+    IDebugStackFrame* frame) const noexcept {
+    if (!frame || !document_) return std::nullopt;
 
     ComPtr<IDebugCodeContext> code_context;
     if (FAILED(frame->GetCodeContext(&code_context)) || !code_context) return std::nullopt;
@@ -93,19 +73,70 @@ std::optional<SourceLocation> ApplicationDebugger::source_location(
     ULONG character_position = 0;
     ULONG character_count = 0;
     if (FAILED(text->GetPositionOfContext(
-            document_context.Get(),
-            &character_position,
-            &character_count))) {
+            document_context.Get(), &character_position, &character_count))) {
         return std::nullopt;
     }
 
     const auto source_position = document_->line_column_for_offset(character_position);
     if (!source_position) return std::nullopt;
-
     return SourceLocation{
         .file = document_->path(),
         .line = source_position->first,
         .column = source_position->second};
+}
+
+std::optional<SourceLocation> ApplicationDebugger::source_location(
+    IRemoteDebugApplicationThread* thread) const noexcept {
+    if (!thread) return std::nullopt;
+    ComPtr<IEnumDebugStackFrames> frames;
+    if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return std::nullopt;
+
+    DebugStackFrameDescriptor descriptor{};
+    ULONG fetched = 0;
+    if (FAILED(frames->Next(1, &descriptor, &fetched)) || fetched == 0 || !descriptor.pdsf) {
+        if (descriptor.punkFinal) descriptor.punkFinal->Release();
+        return std::nullopt;
+    }
+    ComPtr<IDebugStackFrame> frame;
+    frame.Attach(descriptor.pdsf);
+    if (descriptor.punkFinal) descriptor.punkFinal->Release();
+    return source_location(frame.Get());
+}
+
+std::vector<StackFrameInfo> ApplicationDebugger::capture_stack(
+    IRemoteDebugApplicationThread* thread) const noexcept {
+    std::vector<StackFrameInfo> result;
+    if (!thread) return result;
+
+    ComPtr<IEnumDebugStackFrames> frames;
+    if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return result;
+
+    for (std::uint32_t index = 0;; ++index) {
+        DebugStackFrameDescriptor descriptor{};
+        ULONG fetched = 0;
+        const HRESULT hr = frames->Next(1, &descriptor, &fetched);
+        if (FAILED(hr) || fetched == 0 || !descriptor.pdsf) {
+            if (descriptor.punkFinal) descriptor.punkFinal->Release();
+            break;
+        }
+
+        ComPtr<IDebugStackFrame> frame;
+        frame.Attach(descriptor.pdsf);
+        if (descriptor.punkFinal) descriptor.punkFinal->Release();
+
+        BSTR description = nullptr;
+        std::wstring name = L"<script frame>";
+        if (SUCCEEDED(frame->GetDescriptionString(FALSE, &description)) && description) {
+            name = description;
+        }
+        SysFreeString(description);
+
+        result.push_back(StackFrameInfo{
+            .index = index,
+            .name = std::move(name),
+            .location = source_location(frame.Get())});
+    }
+    return result;
 }
 
 STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
@@ -123,6 +154,8 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
         std::wstring marshal_error;
         if (!control_->impl_->capture(thread, marshal_error)) {
             Logger::instance().write(LogLevel::Error, L"debug-control", marshal_error);
+        } else {
+            control_->impl_->set_stack(capture_stack(thread));
         }
     }
 
@@ -182,17 +215,13 @@ STDMETHODIMP ApplicationDebugger::onClose() {
     return S_OK;
 }
 
-STDMETHODIMP ApplicationDebugger::onDebuggerEvent(REFIID, IUnknown*) {
-    return E_NOTIMPL;
-}
+STDMETHODIMP ApplicationDebugger::onDebuggerEvent(REFIID, IUnknown*) { return E_NOTIMPL; }
 
 HRESULT ApplicationDebugger::resume(BREAKRESUMEACTION action) noexcept {
     std::scoped_lock lock(mutex_);
     if (!paused_thread_ || !paused_application_) return S_FALSE;
     const HRESULT hr = paused_application_->ResumeFromBreakPoint(
-        paused_thread_.Get(),
-        action,
-        ERRORRESUMEACTION_SkipErrorStatement);
+        paused_thread_.Get(), action, ERRORRESUMEACTION_SkipErrorStatement);
     if (SUCCEEDED(hr)) {
         paused_thread_.Reset();
         paused_application_.Reset();
