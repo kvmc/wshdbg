@@ -18,7 +18,7 @@ bool ActiveDebugServices::initialize(const std::wstring& application_name, std::
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&manager_));
     if (FAILED(hr)) {
-        error = L"Process Debug Manager is unavailable (HRESULT 0x" + std::to_wstring(static_cast<unsigned long>(hr)) + L")";
+        error = L"Process Debug Manager is unavailable";
         Logger::instance().write(LogLevel::Debug, L"active-debug", error);
         return false;
     }
@@ -49,12 +49,31 @@ bool ActiveDebugServices::initialize(const std::wstring& application_name, std::
 }
 
 void ActiveDebugServices::shutdown() noexcept {
+    disconnect_debugger();
     if (manager_ && application_cookie_ != 0) {
         manager_->RemoveApplication(application_cookie_);
     }
     application_cookie_ = 0;
     application_.Reset();
     manager_.Reset();
+}
+
+HRESULT ActiveDebugServices::connect_debugger(IApplicationDebugger* debugger) noexcept {
+    if (!application_ || !debugger) return E_POINTER;
+    if (debugger_connected_) return S_FALSE;
+    const HRESULT hr = application_->ConnectDebugger(debugger);
+    if (SUCCEEDED(hr)) {
+        debugger_connected_ = true;
+        Logger::instance().write(LogLevel::Debug, L"active-debug", L"Application debugger connected");
+    }
+    return hr;
+}
+
+HRESULT ActiveDebugServices::disconnect_debugger() noexcept {
+    if (!application_ || !debugger_connected_) return S_FALSE;
+    const HRESULT hr = application_->DisconnectDebugger();
+    debugger_connected_ = false;
+    return hr;
 }
 
 HRESULT ActiveDebugServices::create_document_helper(
