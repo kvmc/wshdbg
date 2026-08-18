@@ -24,8 +24,10 @@ endif()
 
 if(WIN32 AND WSHDBG_BUILD_WINDOWS_BACKEND)
     add_library(wshdbg_windows
+        src/windows/active_debug_services.cpp
         src/windows/active_script_host.cpp
         src/windows/active_script_debug_site.cpp
+        src/windows/application_debugger.cpp
         src/windows/breakpoint_binder.cpp
         src/windows/com_runtime.cpp
         src/windows/debug_application.cpp
