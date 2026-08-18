@@ -35,6 +35,8 @@ public:
     bool paused() const noexcept;
     std::vector<StackFrameInfo> stack() const;
     std::vector<VariableInfo> variables() const;
+    EvaluationResult evaluate(std::wstring_view expression, bool allow_side_effects = false);
+    bool execute(std::wstring_view statement, std::wstring& error);
     bool resume(ResumeAction action, std::wstring& error);
 
 private:
