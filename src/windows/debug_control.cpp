@@ -44,6 +44,10 @@ bool DebugControl::paused() const noexcept {
     return impl_->paused();
 }
 
+std::vector<StackFrameInfo> DebugControl::stack() const {
+    return impl_->stack();
+}
+
 bool DebugControl::resume(ResumeAction action, std::wstring& error) {
     return impl_->resume(action, error);
 }
@@ -73,18 +77,14 @@ bool DebugControl::Impl::capture(
     DWORD application_cookie = 0;
     DWORD thread_cookie = 0;
     hr = git->RegisterInterfaceInGlobal(
-        application.Get(),
-        IID_IRemoteDebugApplication,
-        &application_cookie);
+        application.Get(), IID_IRemoteDebugApplication, &application_cookie);
     if (FAILED(hr)) {
         error = L"Unable to marshal debug application across threads";
         return false;
     }
 
     hr = git->RegisterInterfaceInGlobal(
-        thread,
-        IID_IRemoteDebugApplicationThread,
-        &thread_cookie);
+        thread, IID_IRemoteDebugApplicationThread, &thread_cookie);
     if (FAILED(hr)) {
         git->RevokeInterfaceFromGlobal(application_cookie);
         error = L"Unable to marshal paused debug thread across threads";
@@ -96,6 +96,7 @@ bool DebugControl::Impl::capture(
         clear_locked();
         application_cookie_ = application_cookie;
         thread_cookie_ = thread_cookie;
+        stack_.clear();
         paused_ = true;
         completed_ = false;
     }
@@ -104,13 +105,18 @@ bool DebugControl::Impl::capture(
     return true;
 }
 
-void DebugControl::Impl::clear_locked() noexcept {
-    if (application_cookie_ == 0 && thread_cookie_ == 0) return;
+void DebugControl::Impl::set_stack(std::vector<StackFrameInfo> frames) {
+    std::scoped_lock lock(mutex_);
+    stack_ = std::move(frames);
+}
 
-    ComPtr<IGlobalInterfaceTable> git;
-    if (SUCCEEDED(create_git(&git)) && git) {
-        if (thread_cookie_ != 0) git->RevokeInterfaceFromGlobal(thread_cookie_);
-        if (application_cookie_ != 0) git->RevokeInterfaceFromGlobal(application_cookie_);
+void DebugControl::Impl::clear_locked() noexcept {
+    if (application_cookie_ != 0 || thread_cookie_ != 0) {
+        ComPtr<IGlobalInterfaceTable> git;
+        if (SUCCEEDED(create_git(&git)) && git) {
+            if (thread_cookie_ != 0) git->RevokeInterfaceFromGlobal(thread_cookie_);
+            if (application_cookie_ != 0) git->RevokeInterfaceFromGlobal(application_cookie_);
+        }
     }
     thread_cookie_ = 0;
     application_cookie_ = 0;
@@ -138,6 +144,11 @@ DebugWaitResult DebugControl::Impl::wait(std::chrono::milliseconds timeout) {
 bool DebugControl::Impl::paused() const noexcept {
     std::scoped_lock lock(mutex_);
     return paused_;
+}
+
+std::vector<StackFrameInfo> DebugControl::Impl::stack() const {
+    std::scoped_lock lock(mutex_);
+    return stack_;
 }
 
 bool DebugControl::Impl::resume(ResumeAction action, std::wstring& error) noexcept {
