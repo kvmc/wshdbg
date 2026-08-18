@@ -49,7 +49,9 @@ if(WSHDBG_BUILD_TESTS)
         tests/test_main.cpp
         tests/breakpoint_store_tests.cpp
         tests/session_tests.cpp
+        tests/fixture_tests.cpp
     )
     target_link_libraries(wshdbg_tests PRIVATE wshdbg_core)
+    target_compile_definitions(wshdbg_tests PRIVATE WSHDBG_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME wshdbg_tests COMMAND wshdbg_tests)
 endif()
