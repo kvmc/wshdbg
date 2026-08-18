@@ -1,11 +1,13 @@
 #include "application_debugger.hpp"
 #include "wshdbg/core/logging.hpp"
 #include <objbase.h>
+#include <wrl/client.h>
 
 namespace wshdbg::windows {
+using Microsoft::WRL::ComPtr;
 
-ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept
-    : bridge_(bridge), script_(std::move(script)) {}
+ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept
+    : bridge_(bridge), document_(document) {}
 
 STDMETHODIMP ApplicationDebugger::QueryInterface(REFIID riid, void** object) {
     if (!object) return E_POINTER;
@@ -44,6 +46,58 @@ STDMETHODIMP ApplicationDebugger::onDebugOutput(LPCOLESTR text) {
     return S_OK;
 }
 
+std::optional<SourceLocation> ApplicationDebugger::source_location(
+    IRemoteDebugApplicationThread* thread) const noexcept {
+    if (!thread) return std::nullopt;
+
+    ComPtr<IEnumDebugStackFrames> frames;
+    if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return std::nullopt;
+
+    DebugStackFrameDescriptor descriptor{};
+    ULONG fetched = 0;
+    if (FAILED(frames->Next(1, &descriptor, &fetched)) || fetched == 0 || !descriptor.pdsf) {
+        if (descriptor.punkFinal) descriptor.punkFinal->Release();
+        return std::nullopt;
+    }
+
+    ComPtr<IDebugStackFrame> frame;
+    frame.Attach(descriptor.pdsf);
+    if (descriptor.punkFinal) descriptor.punkFinal->Release();
+
+    ComPtr<IDebugCodeContext> code_context;
+    if (FAILED(frame->GetCodeContext(&code_context)) || !code_context) return std::nullopt;
+
+    ComPtr<IDebugDocumentContext> document_context;
+    if (FAILED(code_context->GetDocumentContext(&document_context)) || !document_context) {
+        return std::nullopt;
+    }
+
+    ComPtr<IDebugDocument> debug_document;
+    if (FAILED(document_context->GetDocument(&debug_document)) || !debug_document) {
+        return std::nullopt;
+    }
+
+    ComPtr<IDebugDocumentText> text;
+    if (FAILED(debug_document.As(&text)) || !text) return std::nullopt;
+
+    ULONG character_position = 0;
+    ULONG character_count = 0;
+    if (FAILED(text->GetPositionOfContext(
+            document_context.Get(),
+            &character_position,
+            &character_count))) {
+        return std::nullopt;
+    }
+
+    const auto source_position = document_.line_column_for_offset(character_position);
+    if (!source_position) return std::nullopt;
+
+    return SourceLocation{
+        .file = document_.path(),
+        .line = source_position->first,
+        .column = source_position->second};
+}
+
 STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
     IRemoteDebugApplicationThread* thread,
     BREAKREASON reason,
@@ -75,7 +129,9 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
         break;
     }
 
-    SourceLocation location{.file = script_, .line = 1, .column = 1};
+    SourceLocation location = source_location(thread).value_or(SourceLocation{
+        .file = document_.path(), .line = 1, .column = 1});
+
     if (error) {
         DWORD source_context = 0;
         ULONG line = 0;
