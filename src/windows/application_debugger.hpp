@@ -13,6 +13,7 @@ namespace wshdbg::windows {
 
 class ApplicationDebugger final : public IApplicationDebugger {
 public:
+    ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept;
     ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept;
 
     STDMETHODIMP QueryInterface(REFIID riid, void** object) override;
@@ -43,7 +44,8 @@ private:
 
     std::atomic<ULONG> refs_{1};
     DebugSiteBridge& bridge_;
-    DebugDocument& document_;
+    std::filesystem::path script_;
+    DebugDocument* document_{nullptr};
     mutable std::mutex mutex_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplicationThread> paused_thread_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplication> paused_application_;
