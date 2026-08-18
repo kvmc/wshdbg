@@ -24,13 +24,19 @@ int main() {
     session.breakpoints().add(SourceLocation{.file = script, .line = 4, .column = 1});
 
     bool saw_breakpoint = false;
+    bool saw_step = false;
     std::uint32_t stopped_line = 0;
+    std::uint32_t stepped_line = 0;
     std::wstring output;
     session.subscribe([&](const SessionEvent& event) {
-        if (event.kind == SessionEvent::Kind::Debugger && event.debug &&
-            event.debug->type == DebugEventType::BreakpointHit) {
-            saw_breakpoint = true;
-            if (event.debug->location) stopped_line = event.debug->location->line;
+        if (event.kind == SessionEvent::Kind::Debugger && event.debug) {
+            if (event.debug->type == DebugEventType::BreakpointHit) {
+                saw_breakpoint = true;
+                if (event.debug->location) stopped_line = event.debug->location->line;
+            } else if (event.debug->type == DebugEventType::StepComplete) {
+                saw_step = true;
+                if (event.debug->location) stepped_line = event.debug->location->line;
+            }
         }
         if (event.kind == SessionEvent::Kind::Output) output += event.text;
     });
@@ -55,18 +61,56 @@ int main() {
     });
 
     const auto deadline = std::chrono::steady_clock::now() + 15s;
-    bool resumed = false;
+    bool inspected = false;
+    bool stepped = false;
+    bool continued = false;
+
     while (!finished.load(std::memory_order_acquire) &&
            std::chrono::steady_clock::now() < deadline) {
-        if (control.wait(100ms) == DebugWaitResult::Paused) {
-            std::wstring resume_error;
-            if (!control.resume(ResumeAction::Continue, resume_error)) {
-                std::wcerr << L"resume failed: " << resume_error << L"\n";
-                control.resume(ResumeAction::Abort, resume_error);
+        if (control.wait(100ms) != DebugWaitResult::Paused) continue;
+
+        if (!inspected) {
+            const auto stack = control.stack();
+            if (stack.empty()) {
+                std::wcerr << L"expected at least one stack frame\n";
                 break;
             }
-            resumed = true;
+
+            const auto variables = control.variables();
+            bool found_x = false;
+            for (const auto& variable : variables) {
+                if (variable.name == L"x") {
+                    found_x = true;
+                    break;
+                }
+            }
+            if (!found_x) {
+                std::wcerr << L"expected local variable x\n";
+                break;
+            }
+
+            const auto evaluation = control.evaluate(L"x", false);
+            if (!evaluation.success || evaluation.value.find(L"1") == std::wstring::npos) {
+                std::wcerr << L"expected x to evaluate to 1 before line 4\n";
+                break;
+            }
+
+            std::wstring resume_error;
+            if (!control.resume(ResumeAction::StepOver, resume_error)) {
+                std::wcerr << L"step-over failed: " << resume_error << L"\n";
+                break;
+            }
+            inspected = true;
+            stepped = true;
+            continue;
         }
+
+        std::wstring resume_error;
+        if (!control.resume(ResumeAction::Continue, resume_error)) {
+            std::wcerr << L"continue failed: " << resume_error << L"\n";
+            break;
+        }
+        continued = true;
     }
 
     if (!finished.load(std::memory_order_acquire) && control.paused()) {
@@ -79,19 +123,31 @@ int main() {
         std::wcerr << L"debug run failed: " << run_error << L"\n";
         return 1;
     }
-    if (!resumed || !saw_breakpoint) {
-        std::wcerr << L"expected breakpoint was not observed\n";
+    if (!saw_breakpoint || !inspected) {
+        std::wcerr << L"expected breakpoint inspection was not observed\n";
         return 2;
     }
     if (stopped_line != 4) {
         std::wcerr << L"expected stop at line 4, got line " << stopped_line << L"\n";
         return 3;
     }
-    if (output.find(L"2") == std::wstring::npos) {
-        std::wcerr << L"expected WScript.Echo output was not observed\n";
+    if (!stepped || !saw_step) {
+        std::wcerr << L"expected step-complete event was not observed\n";
         return 4;
     }
+    if (stepped_line != 5) {
+        std::wcerr << L"expected step to line 5, got line " << stepped_line << L"\n";
+        return 5;
+    }
+    if (!continued) {
+        std::wcerr << L"expected final continue was not issued\n";
+        return 6;
+    }
+    if (output.find(L"2") == std::wstring::npos) {
+        std::wcerr << L"expected WScript.Echo output was not observed\n";
+        return 7;
+    }
 
-    std::wcout << L"breakpoint integration test passed\n";
+    std::wcout << L"breakpoint/inspection/step integration test passed\n";
     return 0;
 }
