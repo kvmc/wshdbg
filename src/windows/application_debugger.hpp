@@ -53,6 +53,8 @@ private:
         IDebugStackFrame* frame) const noexcept;
     std::vector<StackFrameInfo> capture_stack(
         IRemoteDebugApplicationThread* thread) const noexcept;
+    std::vector<VariableInfo> capture_variables(
+        IRemoteDebugApplicationThread* thread) const noexcept;
 
     std::atomic<ULONG> refs_{1};
     DebugSiteBridge& bridge_;
