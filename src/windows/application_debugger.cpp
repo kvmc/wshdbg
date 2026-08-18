@@ -1,4 +1,5 @@
 #include "application_debugger.hpp"
+#include "debug_control_internal.hpp"
 #include "wshdbg/core/logging.hpp"
 #include <objbase.h>
 #include <wrl/client.h>
@@ -6,11 +7,17 @@
 namespace wshdbg::windows {
 using Microsoft::WRL::ComPtr;
 
-ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept
-    : bridge_(bridge), script_(std::move(script)) {}
+ApplicationDebugger::ApplicationDebugger(
+    DebugSiteBridge& bridge,
+    std::filesystem::path script,
+    DebugControl* control) noexcept
+    : bridge_(bridge), script_(std::move(script)), control_(control) {}
 
-ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept
-    : bridge_(bridge), script_(document.path()), document_(&document) {}
+ApplicationDebugger::ApplicationDebugger(
+    DebugSiteBridge& bridge,
+    DebugDocument& document,
+    DebugControl* control) noexcept
+    : bridge_(bridge), script_(document.path()), document_(&document), control_(control) {}
 
 STDMETHODIMP ApplicationDebugger::QueryInterface(REFIID riid, void** object) {
     if (!object) return E_POINTER;
@@ -112,6 +119,13 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
         if (thread) thread->GetApplication(&paused_application_);
     }
 
+    if (control_ && control_->impl_) {
+        std::wstring marshal_error;
+        if (!control_->impl_->capture(thread, marshal_error)) {
+            Logger::instance().write(LogLevel::Error, L"debug-control", marshal_error);
+        }
+    }
+
     StopReason stop_reason = StopReason::Breakpoint;
     std::wstring message = L"breakpoint";
     switch (reason) {
@@ -158,9 +172,12 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
 }
 
 STDMETHODIMP ApplicationDebugger::onClose() {
-    std::scoped_lock lock(mutex_);
-    paused_thread_.Reset();
-    paused_application_.Reset();
+    {
+        std::scoped_lock lock(mutex_);
+        paused_thread_.Reset();
+        paused_application_.Reset();
+    }
+    if (control_ && control_->impl_) control_->impl_->complete();
     bridge_.process_stopped(L"debug application closed");
     return S_OK;
 }
