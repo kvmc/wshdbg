@@ -1,14 +1,10 @@
 #pragma once
 
-#include <activdbg.h>
-#include <atomic>
+#include "active_debug_services.hpp"
 #include <string>
 
 namespace wshdbg::windows {
 
-// Owns the Active Debugging application boundary. This object will eventually
-// provide the bridge between Active Script engines and wshdbg-core execution
-// state. It intentionally does not depend on Visual Studio/PDM services.
 class DebugApplication {
 public:
     DebugApplication();
@@ -17,13 +13,16 @@ public:
     DebugApplication(const DebugApplication&) = delete;
     DebugApplication& operator=(const DebugApplication&) = delete;
 
-    bool initialize(const std::wstring& name);
+    bool initialize(const std::wstring& name, std::wstring& error);
     void shutdown();
 
-    bool initialized() const noexcept { return initialized_; }
+    bool initialized() const noexcept { return services_.available(); }
+    DebugApplicationInterface* native() const noexcept { return services_.application(); }
+    ActiveDebugServices& services() noexcept { return services_; }
+    const ActiveDebugServices& services() const noexcept { return services_; }
 
 private:
-    bool initialized_{false};
+    ActiveDebugServices services_;
 };
 
 } // namespace wshdbg::windows
