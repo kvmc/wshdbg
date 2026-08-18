@@ -10,7 +10,7 @@ namespace wshdbg::windows {
 class ApplicationDebugger;
 
 enum class ScriptLanguage { VBScript, JScript };
-enum class ResumeAction { Continue, StepInto, StepOver, StepOut };
+enum class ResumeAction { Continue, StepInto, StepOver, StepOut, Abort };
 enum class DebugWaitResult { Paused, Completed, Timeout };
 
 struct LaunchOptions {
