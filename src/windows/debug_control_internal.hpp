@@ -17,6 +17,8 @@ struct DebugControl::Impl {
     bool paused() const noexcept;
     std::vector<StackFrameInfo> stack() const;
     std::vector<VariableInfo> variables() const;
+    EvaluationResult evaluate(std::wstring_view expression, bool allow_side_effects);
+    bool execute(std::wstring_view statement, std::wstring& error);
     bool resume(ResumeAction action, std::wstring& error) noexcept;
 
 private:
@@ -26,6 +28,7 @@ private:
     std::condition_variable cv_;
     DWORD application_cookie_{0};
     DWORD thread_cookie_{0};
+    DWORD frame_cookie_{0};
     std::vector<StackFrameInfo> stack_;
     std::vector<VariableInfo> variables_;
     bool paused_{false};
