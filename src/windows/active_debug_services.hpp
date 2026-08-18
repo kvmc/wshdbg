@@ -16,9 +16,6 @@ using DebugApplicationInterface = IDebugApplication32;
 using DebugDocumentHelperInterface = IDebugDocumentHelper32;
 #endif
 
-// Owns the optional Windows Active Debugging service (PDM). The debugger can
-// still host scripts when this component is unavailable; source-level debugging
-// is reported as unavailable instead of silently falling back to a system IDE.
 class ActiveDebugServices {
 public:
     ActiveDebugServices() = default;
@@ -33,12 +30,15 @@ public:
     bool available() const noexcept { return manager_ && application_; }
     DebugApplicationInterface* application() const noexcept { return application_.Get(); }
 
+    HRESULT connect_debugger(IApplicationDebugger* debugger) noexcept;
+    HRESULT disconnect_debugger() noexcept;
     HRESULT create_document_helper(IUnknown* outer, DebugDocumentHelperInterface** helper) const noexcept;
 
 private:
     Microsoft::WRL::ComPtr<ProcessDebugManagerInterface> manager_;
     Microsoft::WRL::ComPtr<DebugApplicationInterface> application_;
     DWORD application_cookie_{0};
+    bool debugger_connected_{false};
 };
 
 } // namespace wshdbg::windows
