@@ -6,8 +6,11 @@
 namespace wshdbg::windows {
 using Microsoft::WRL::ComPtr;
 
+ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept
+    : bridge_(bridge), script_(std::move(script)) {}
+
 ApplicationDebugger::ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept
-    : bridge_(bridge), document_(document) {}
+    : bridge_(bridge), script_(document.path()), document_(&document) {}
 
 STDMETHODIMP ApplicationDebugger::QueryInterface(REFIID riid, void** object) {
     if (!object) return E_POINTER;
@@ -48,7 +51,7 @@ STDMETHODIMP ApplicationDebugger::onDebugOutput(LPCOLESTR text) {
 
 std::optional<SourceLocation> ApplicationDebugger::source_location(
     IRemoteDebugApplicationThread* thread) const noexcept {
-    if (!thread) return std::nullopt;
+    if (!thread || !document_) return std::nullopt;
 
     ComPtr<IEnumDebugStackFrames> frames;
     if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return std::nullopt;
@@ -89,11 +92,11 @@ std::optional<SourceLocation> ApplicationDebugger::source_location(
         return std::nullopt;
     }
 
-    const auto source_position = document_.line_column_for_offset(character_position);
+    const auto source_position = document_->line_column_for_offset(character_position);
     if (!source_position) return std::nullopt;
 
     return SourceLocation{
-        .file = document_.path(),
+        .file = document_->path(),
         .line = source_position->first,
         .column = source_position->second};
 }
@@ -130,7 +133,7 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
     }
 
     SourceLocation location = source_location(thread).value_or(SourceLocation{
-        .file = document_.path(), .line = 1, .column = 1});
+        .file = script_, .line = 1, .column = 1});
 
     if (error) {
         DWORD source_context = 0;
