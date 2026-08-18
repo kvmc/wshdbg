@@ -5,7 +5,12 @@
 #include <string>
 namespace wshdbg::windows {
 enum class ScriptLanguage { VBScript, JScript };
-struct LaunchOptions { std::filesystem::path script_path; ScriptLanguage language{ScriptLanguage::VBScript}; bool break_on_entry{false}; };
+struct LaunchOptions {
+    std::filesystem::path script_path;
+    ScriptLanguage language{ScriptLanguage::VBScript};
+    bool debug{false};
+    bool break_on_entry{false};
+};
 class ActiveScriptHost {
 public:
     ActiveScriptHost();
