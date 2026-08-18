@@ -42,6 +42,14 @@ std::optional<std::uint32_t> parse_line(std::wstring_view value) {
     }
 }
 
+std::wstring command_argument(const std::wstring& input, std::wstring_view command) {
+    if (input.size() <= command.size()) return {};
+    auto value = input.substr(command.size());
+    const auto first = value.find_first_not_of(L" \t");
+    if (first == std::wstring::npos) return {};
+    return value.substr(first);
+}
+
 void print_stack(const wshdbg::windows::DebugControl& control) {
     const auto frames = control.stack();
     if (frames.empty()) {
@@ -103,32 +111,17 @@ int wmain(int argc, wchar_t** argv) {
     for (int i = 2; i < argc; ++i) {
         const std::wstring arg{argv[i]};
         if (arg == L"--log-level") {
-            if (++i >= argc) {
-                std::wcerr << L"--log-level requires a value\n";
-                return 2;
-            }
+            if (++i >= argc) { std::wcerr << L"--log-level requires a value\n"; return 2; }
             const auto parsed = parse_log_level(argv[i]);
-            if (!parsed) {
-                std::wcerr << L"Invalid log level: " << argv[i] << L"\n";
-                return 2;
-            }
+            if (!parsed) { std::wcerr << L"Invalid log level: " << argv[i] << L"\n"; return 2; }
             log_level = *parsed;
         } else if (arg == L"--log-file") {
-            if (++i >= argc) {
-                std::wcerr << L"--log-file requires a path\n";
-                return 2;
-            }
+            if (++i >= argc) { std::wcerr << L"--log-file requires a path\n"; return 2; }
             log_file = argv[i];
         } else if (arg == L"--break") {
-            if (++i >= argc) {
-                std::wcerr << L"--break requires a line number\n";
-                return 2;
-            }
+            if (++i >= argc) { std::wcerr << L"--break requires a line number\n"; return 2; }
             const auto line = parse_line(argv[i]);
-            if (!line) {
-                std::wcerr << L"Invalid breakpoint line: " << argv[i] << L"\n";
-                return 2;
-            }
+            if (!line) { std::wcerr << L"Invalid breakpoint line: " << argv[i] << L"\n"; return 2; }
             breakpoint_lines.push_back(*line);
         } else if (arg == L"--break-on-entry") {
             break_on_entry = true;
@@ -140,10 +133,7 @@ int wmain(int argc, wchar_t** argv) {
         }
     }
 
-    if (script_path.empty()) {
-        std::wcerr << L"No script path supplied.\n";
-        return 2;
-    }
+    if (script_path.empty()) { std::wcerr << L"No script path supplied.\n"; return 2; }
 
     auto& logger = wshdbg::Logger::instance();
     logger.set_level(log_level);
@@ -157,17 +147,11 @@ int wmain(int argc, wchar_t** argv) {
     wshdbg::windows::ScriptLanguage language;
     if (ext == L".vbs") language = wshdbg::windows::ScriptLanguage::VBScript;
     else if (ext == L".js") language = wshdbg::windows::ScriptLanguage::JScript;
-    else {
-        std::wcerr << L"Unsupported script extension: " << ext << L"\n";
-        return 2;
-    }
+    else { std::wcerr << L"Unsupported script extension: " << ext << L"\n"; return 2; }
 
     wshdbg::DebugSession session;
     for (const auto line : breakpoint_lines) {
-        session.breakpoints().add(wshdbg::SourceLocation{
-            .file = script_path,
-            .line = line,
-            .column = 1});
+        session.breakpoints().add(wshdbg::SourceLocation{.file = script_path, .line = line, .column = 1});
     }
 
     session.subscribe([](const wshdbg::SessionEvent& event) {
@@ -231,21 +215,51 @@ int wmain(int argc, wchar_t** argv) {
             if (input == L"bt" || input == L"stack" || input == L"where") {
                 print_stack(control);
                 continue;
-            } else if (input == L"locals" || input == L"vars") {
+            }
+            if (input == L"locals" || input == L"vars") {
                 print_variables(control);
                 continue;
-            } else if (input == L"c" || input == L"continue") {
-                action = wshdbg::windows::ResumeAction::Continue;
-            } else if (input == L"s" || input == L"step" || input == L"in") {
-                action = wshdbg::windows::ResumeAction::StepInto;
-            } else if (input == L"n" || input == L"next" || input == L"over") {
-                action = wshdbg::windows::ResumeAction::StepOver;
-            } else if (input == L"o" || input == L"out") {
-                action = wshdbg::windows::ResumeAction::StepOut;
-            } else if (input == L"q" || input == L"quit") {
-                action = wshdbg::windows::ResumeAction::Abort;
-            } else if (input == L"h" || input == L"help" || input == L"?") {
-                std::wcout << L"bt/stack  locals  c/continue  s/step  n/next  o/out  q/quit\n";
+            }
+            if (input.rfind(L"p ", 0) == 0 || input.rfind(L"print ", 0) == 0 || input.rfind(L"eval ", 0) == 0) {
+                std::wstring expression;
+                if (input.rfind(L"p ", 0) == 0) expression = command_argument(input, L"p");
+                else if (input.rfind(L"print ", 0) == 0) expression = command_argument(input, L"print");
+                else expression = command_argument(input, L"eval");
+                const auto result = control.evaluate(expression, false);
+                if (!result.success) std::wcerr << L"evaluation error: " << result.error << L"\n";
+                else {
+                    std::wcout << result.value;
+                    if (!result.type.empty()) std::wcout << L"  [" << result.type << L"]";
+                    std::wcout << L"\n";
+                }
+                continue;
+            }
+            if (input.rfind(L"exec ", 0) == 0 || input.rfind(L"set ", 0) == 0) {
+                const auto statement = input.rfind(L"exec ", 0) == 0
+                    ? command_argument(input, L"exec")
+                    : command_argument(input, L"set");
+                std::wstring execute_error;
+                if (!control.execute(statement, execute_error)) {
+                    std::wcerr << L"execution error: " << execute_error << L"\n";
+                }
+                continue;
+            }
+            if (input == L"c" || input == L"continue") action = wshdbg::windows::ResumeAction::Continue;
+            else if (input == L"s" || input == L"step" || input == L"in") action = wshdbg::windows::ResumeAction::StepInto;
+            else if (input == L"n" || input == L"next" || input == L"over") action = wshdbg::windows::ResumeAction::StepOver;
+            else if (input == L"o" || input == L"out") action = wshdbg::windows::ResumeAction::StepOut;
+            else if (input == L"q" || input == L"quit") action = wshdbg::windows::ResumeAction::Abort;
+            else if (input == L"h" || input == L"help" || input == L"?") {
+                std::wcout
+                    << L"bt/stack         show stack\n"
+                    << L"locals           show locals and arguments\n"
+                    << L"p EXPR           evaluate expression without side effects\n"
+                    << L"exec STMT        execute a statement in the current frame\n"
+                    << L"c/continue       continue\n"
+                    << L"s/step           step into\n"
+                    << L"n/next           step over\n"
+                    << L"o/out            step out\n"
+                    << L"q/quit           abort debuggee\n";
                 continue;
             } else {
                 std::wcout << L"Unknown command. Type 'help'.\n";
