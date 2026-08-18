@@ -1,11 +1,23 @@
 #include "application_debugger.hpp"
 #include "debug_control_internal.hpp"
 #include "wshdbg/core/logging.hpp"
+#include <dbgprop.h>
 #include <objbase.h>
 #include <wrl/client.h>
 
 namespace wshdbg::windows {
 using Microsoft::WRL::ComPtr;
+
+namespace {
+void clear_property_info(DebugPropertyInfo& info) noexcept {
+    SysFreeString(info.m_bstrName);
+    SysFreeString(info.m_bstrType);
+    SysFreeString(info.m_bstrValue);
+    SysFreeString(info.m_bstrFullName);
+    if (info.m_pDebugProp) info.m_pDebugProp->Release();
+    info = {};
+}
+}
 
 ApplicationDebugger::ApplicationDebugger(
     DebugSiteBridge& bridge,
@@ -139,6 +151,59 @@ std::vector<StackFrameInfo> ApplicationDebugger::capture_stack(
     return result;
 }
 
+std::vector<VariableInfo> ApplicationDebugger::capture_variables(
+    IRemoteDebugApplicationThread* thread) const noexcept {
+    std::vector<VariableInfo> result;
+    if (!thread) return result;
+
+    ComPtr<IEnumDebugStackFrames> frames;
+    if (FAILED(thread->EnumStackFrames(&frames)) || !frames) return result;
+
+    DebugStackFrameDescriptor descriptor{};
+    ULONG fetched = 0;
+    if (FAILED(frames->Next(1, &descriptor, &fetched)) || fetched == 0 || !descriptor.pdsf) {
+        if (descriptor.punkFinal) descriptor.punkFinal->Release();
+        return result;
+    }
+
+    ComPtr<IDebugStackFrame> frame;
+    frame.Attach(descriptor.pdsf);
+    if (descriptor.punkFinal) descriptor.punkFinal->Release();
+
+    ComPtr<IDebugProperty> frame_property;
+    if (FAILED(frame->GetDebugProperty(&frame_property)) || !frame_property) return result;
+
+    ComPtr<IEnumDebugPropertyInfo> members;
+    const DWORD fields = DBGPROP_INFO_NAME | DBGPROP_INFO_TYPE |
+                         DBGPROP_INFO_VALUE | DBGPROP_INFO_ATTRIBUTES;
+    if (FAILED(frame_property->EnumMembers(
+            fields,
+            10,
+            IID_IDebugPropertyEnumType_LocalsPlusArgs,
+            &members)) || !members) {
+        return result;
+    }
+
+    for (;;) {
+        DebugPropertyInfo info{};
+        ULONG count = 0;
+        const HRESULT hr = members->Next(1, &info, &count);
+        if (FAILED(hr) || count == 0) {
+            clear_property_info(info);
+            break;
+        }
+
+        result.push_back(VariableInfo{
+            .name = info.m_bstrName ? std::wstring{info.m_bstrName} : L"",
+            .type = info.m_bstrType ? std::wstring{info.m_bstrType} : L"",
+            .value = info.m_bstrValue ? std::wstring{info.m_bstrValue} : L"",
+            .expandable = (info.m_dwAttrib & DBGPROP_ATTRIB_VALUE_IS_EXPANDABLE) != 0,
+            .read_only = (info.m_dwAttrib & DBGPROP_ATTRIB_VALUE_READONLY) != 0});
+        clear_property_info(info);
+    }
+    return result;
+}
+
 STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
     IRemoteDebugApplicationThread* thread,
     BREAKREASON reason,
@@ -156,6 +221,7 @@ STDMETHODIMP ApplicationDebugger::onHandleBreakPoint(
             Logger::instance().write(LogLevel::Error, L"debug-control", marshal_error);
         } else {
             control_->impl_->set_stack(capture_stack(thread));
+            control_->impl_->set_variables(capture_variables(thread));
         }
     }
 
