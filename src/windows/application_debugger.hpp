@@ -2,6 +2,7 @@
 
 #include "debug_document.hpp"
 #include "debug_site.hpp"
+#include "wshdbg/platform/windows_backend.hpp"
 #include <activdbg.h>
 #include <atomic>
 #include <filesystem>
@@ -13,8 +14,14 @@ namespace wshdbg::windows {
 
 class ApplicationDebugger final : public IApplicationDebugger {
 public:
-    ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept;
-    ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept;
+    ApplicationDebugger(
+        DebugSiteBridge& bridge,
+        std::filesystem::path script,
+        DebugControl* control = nullptr) noexcept;
+    ApplicationDebugger(
+        DebugSiteBridge& bridge,
+        DebugDocument& document,
+        DebugControl* control = nullptr) noexcept;
 
     STDMETHODIMP QueryInterface(REFIID riid, void** object) override;
     STDMETHODIMP_(ULONG) AddRef() override;
@@ -46,6 +53,7 @@ private:
     DebugSiteBridge& bridge_;
     std::filesystem::path script_;
     DebugDocument* document_{nullptr};
+    DebugControl* control_{nullptr};
     mutable std::mutex mutex_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplicationThread> paused_thread_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplication> paused_application_;
