@@ -1,5 +1,7 @@
 #pragma once
 
+#include "debug_application.hpp"
+#include "debug_document_helper.hpp"
 #include "debug_site.hpp"
 #include <activdbg.h>
 #include <atomic>
@@ -9,18 +11,17 @@ namespace wshdbg::windows {
 
 #ifdef _WIN64
 using ActiveScriptSiteDebugInterface = IActiveScriptSiteDebug64;
-using DebugApplicationInterface = IDebugApplication64;
 #else
 using ActiveScriptSiteDebugInterface = IActiveScriptSiteDebug32;
-using DebugApplicationInterface = IDebugApplication32;
 #endif
 
-// SDK-facing half of the debugger site.  Source-context and debug-application
-// ownership are deliberately explicit because those objects are supplied by the
-// Active Debugging infrastructure rather than by wshdbg-core.
 class ActiveScriptDebugSite final : public ActiveScriptSiteDebugInterface {
 public:
-    ActiveScriptDebugSite(DebugSiteBridge& bridge, std::filesystem::path script) noexcept;
+    ActiveScriptDebugSite(
+        DebugSiteBridge& bridge,
+        std::filesystem::path script,
+        DebugApplication& application,
+        DebugDocumentHelper& document_helper) noexcept;
 
     STDMETHODIMP QueryInterface(REFIID riid, void** object) override;
     STDMETHODIMP_(ULONG) AddRef() override;
@@ -52,6 +53,8 @@ private:
     std::atomic<ULONG> refs_{1};
     DebugSiteBridge& bridge_;
     std::filesystem::path script_;
+    DebugApplication& application_;
+    DebugDocumentHelper& document_helper_;
 };
 
 } // namespace wshdbg::windows
