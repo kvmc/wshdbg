@@ -25,6 +25,7 @@ BREAKRESUMEACTION native_action(ResumeAction action) noexcept {
     case ResumeAction::StepInto: return BREAKRESUMEACTION_STEP_INTO;
     case ResumeAction::StepOver: return BREAKRESUMEACTION_STEP_OVER;
     case ResumeAction::StepOut: return BREAKRESUMEACTION_STEP_OUT;
+    case ResumeAction::Abort: return BREAKRESUMEACTION_ABORT;
     }
     return BREAKRESUMEACTION_CONTINUE;
 }
@@ -165,20 +166,14 @@ bool DebugControl::Impl::resume(ResumeAction action, std::wstring& error) noexce
     ComPtr<IRemoteDebugApplication> application;
     ComPtr<IRemoteDebugApplicationThread> thread;
     if (SUCCEEDED(hr)) {
-        hr = git->GetInterfaceFromGlobal(
-            application_cookie,
-            IID_PPV_ARGS(&application));
+        hr = git->GetInterfaceFromGlobal(application_cookie, IID_PPV_ARGS(&application));
     }
     if (SUCCEEDED(hr)) {
-        hr = git->GetInterfaceFromGlobal(
-            thread_cookie,
-            IID_PPV_ARGS(&thread));
+        hr = git->GetInterfaceFromGlobal(thread_cookie, IID_PPV_ARGS(&thread));
     }
     if (SUCCEEDED(hr) && application && thread) {
         hr = application->ResumeFromBreakPoint(
-            thread.Get(),
-            native_action(action),
-            ERRORRESUMEACTION_SkipErrorStatement);
+            thread.Get(), native_action(action), ERRORRESUMEACTION_SkipErrorStatement);
     }
 
     if (SUCCEEDED(hr)) {
