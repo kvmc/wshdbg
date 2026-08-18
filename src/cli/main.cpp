@@ -3,18 +3,20 @@
 #ifdef WSHDBG_HAS_WINDOWS_BACKEND
 #include "wshdbg/platform/windows_backend.hpp"
 #endif
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 void usage() {
     std::wcout
         << L"wshdbg 0.1.0\n"
         << L"Usage:\n"
-        << L"  wshdbg run [--log-level off|error|debug|trace] <script.vbs|script.js>\n"
-        << L"  wshdbg debug [--break-on-entry] [--log-level off|error|debug|trace] <script.vbs|script.js>\n"
+        << L"  wshdbg run [--log-level off|error|debug|trace] [--log-file path] <script.vbs|script.js>\n"
+        << L"  wshdbg debug [--break line] [--break-on-entry] [--log-level off|error|debug|trace] [--log-file path] <script.vbs|script.js>\n"
         << L"  wshdbg --version\n";
 }
 
@@ -24,6 +26,17 @@ std::optional<wshdbg::LogLevel> parse_log_level(std::wstring_view value) {
     if (value == L"debug") return wshdbg::LogLevel::Debug;
     if (value == L"trace") return wshdbg::LogLevel::Trace;
     return std::nullopt;
+}
+
+std::optional<std::uint32_t> parse_line(std::wstring_view value) {
+    try {
+        std::size_t consumed = 0;
+        const auto line = std::stoul(std::wstring{value}, &consumed, 10);
+        if (consumed != value.size() || line == 0 || line > UINT32_MAX) return std::nullopt;
+        return static_cast<std::uint32_t>(line);
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 }
 
@@ -46,7 +59,10 @@ int wmain(int argc, wchar_t** argv) {
 
     wshdbg::LogLevel log_level = wshdbg::LogLevel::Error;
     bool break_on_entry = false;
+    std::filesystem::path log_file;
     std::filesystem::path script_path;
+    std::vector<std::uint32_t> breakpoint_lines;
+
     for (int i = 2; i < argc; ++i) {
         const std::wstring arg{argv[i]};
         if (arg == L"--log-level") {
@@ -60,6 +76,23 @@ int wmain(int argc, wchar_t** argv) {
                 return 2;
             }
             log_level = *parsed;
+        } else if (arg == L"--log-file") {
+            if (++i >= argc) {
+                std::wcerr << L"--log-file requires a path\n";
+                return 2;
+            }
+            log_file = argv[i];
+        } else if (arg == L"--break") {
+            if (++i >= argc) {
+                std::wcerr << L"--break requires a line number\n";
+                return 2;
+            }
+            const auto line = parse_line(argv[i]);
+            if (!line) {
+                std::wcerr << L"Invalid breakpoint line: " << argv[i] << L"\n";
+                return 2;
+            }
+            breakpoint_lines.push_back(*line);
         } else if (arg == L"--break-on-entry") {
             break_on_entry = true;
         } else if (script_path.empty()) {
@@ -75,7 +108,9 @@ int wmain(int argc, wchar_t** argv) {
         return 2;
     }
 
-    wshdbg::Logger::instance().set_level(log_level);
+    auto& logger = wshdbg::Logger::instance();
+    logger.set_level(log_level);
+    if (!log_file.empty()) logger.set_file(log_file);
 
 #ifndef WSHDBG_HAS_WINDOWS_BACKEND
     std::wcerr << L"The Active Scripting backend is unavailable.\n";
@@ -91,6 +126,13 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     wshdbg::DebugSession session;
+    for (const auto line : breakpoint_lines) {
+        session.breakpoints().add(wshdbg::SourceLocation{
+            .file = script_path,
+            .line = line,
+            .column = 1});
+    }
+
     session.subscribe([](const wshdbg::SessionEvent& event) {
         if (event.kind == wshdbg::SessionEvent::Kind::Stopped && event.stop) {
             std::wcout << L"[stopped] " << event.stop->description;
@@ -112,7 +154,7 @@ int wmain(int argc, wchar_t** argv) {
 
     wshdbg::windows::ActiveScriptHost host;
     std::wstring error;
-    const bool debug = command == L"debug";
+    const bool debug = command == L"debug" || !breakpoint_lines.empty() || break_on_entry;
     if (!host.run({
             .script_path = script_path,
             .language = language,
