@@ -1,17 +1,19 @@
 #pragma once
 
+#include "debug_document.hpp"
 #include "debug_site.hpp"
 #include <activdbg.h>
 #include <atomic>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <wrl/client.h>
 
 namespace wshdbg::windows {
 
 class ApplicationDebugger final : public IApplicationDebugger {
 public:
-    ApplicationDebugger(DebugSiteBridge& bridge, std::filesystem::path script) noexcept;
+    ApplicationDebugger(DebugSiteBridge& bridge, DebugDocument& document) noexcept;
 
     STDMETHODIMP QueryInterface(REFIID riid, void** object) override;
     STDMETHODIMP_(ULONG) AddRef() override;
@@ -36,9 +38,12 @@ public:
     bool paused() const noexcept;
 
 private:
+    std::optional<SourceLocation> source_location(
+        IRemoteDebugApplicationThread* thread) const noexcept;
+
     std::atomic<ULONG> refs_{1};
     DebugSiteBridge& bridge_;
-    std::filesystem::path script_;
+    DebugDocument& document_;
     mutable std::mutex mutex_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplicationThread> paused_thread_;
     Microsoft::WRL::ComPtr<IRemoteDebugApplication> paused_application_;
